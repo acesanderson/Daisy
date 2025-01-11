@@ -1,7 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-
 from Kramer.database.MongoDB_CRUD import get_all_courses_sync
 from rich.console import Console
 import chromadb
@@ -44,67 +40,44 @@ class WriteVideoTranscript(dspy.Signature):
 
 
 def get_similarity_score(original_text: str, generated_text: str):
-    """
-    Get the similarity score between two texts.
-    """
-    if not isinstance(original_text, str):
-        return None
-    if not isinstance(generated_text, str):
-        return None
-    # Initialize ChromaDB client
+    """Get the similarity score between two texts."""
+    if not isinstance(original_text, str) or not isinstance(generated_text, str):
+        return 0.0  # Return a default poor score instead of None
+
     client = chromadb.Client()
 
-    # Create a collection
+    # Clean up previous collection if exists
     try:
-        collection = client.get_collection("similarity_test")
-    except chromadb.errors.InvalidCollectionException:
-        collection = client.create_collection("similarity_test")
+        client.delete_collection("similarity_test")
+    except:
+        pass
 
-    # Add your documents
+    collection = client.create_collection("similarity_test")
+
     try:
         collection.add(
             documents=[original_text, generated_text], ids=["original", "generated"]
         )
-    except:
-        print("Error adding document for whatever reason.")
 
-    # Query to get similarity
-    results = collection.query(
-        query_texts=[original_text], n_results=2, include=["distances"]
-    )
+        results = collection.query(
+            query_texts=[original_text], n_results=2, include=["distances"]
+        )
 
-    # The distances in the results represent similarity scores
-    # Lower distance = higher similarity
-    similarity_scores = results["distances"][0][1]
-    return similarity_scores
+        similarity_score = results["distances"][0][1]
+        return float(similarity_score)
+    except Exception as e:
+        print(f"Error in similarity calculation: {e}")
+        return 0.0  # Return a default poor score instead of None
+    finally:
+        # Clean up
+        try:
+            client.delete_collection("similarity_test")
+        except:
+            pass
 
 
 write_video_transcript = dspy.ChainOfThought(WriteVideoTranscript)
 
-# Create examples for evaluation
-# n = 500
-# scores = []
-# for index, example in enumerate(trainset[:n]):
-#     print(f"Processing example {index + 1} of {n} ")
-#     topic = example.topic
-#     intro_video = example.intro_video
-#     generated_intro_video = write_video_transcript(topic=topic)
-#     similarity_score = get_similarity_score(
-#         intro_video, generated_intro_video.intro_video
-#     )
-#     print(f"Topic: {topic}")
-#     print(f"Similarity Score: {similarity_score}")
-#     # print(f"Original Intro Video: {intro_video}")
-#     # print(f"Generated Intro Video: {generated_intro_video.intro_video}")
-#     scores.append(similarity_score)
-
-
-# I couldn't get this to work
-# from dspy.evaluate import Evaluate
-# Set up the evaluator, which can be re-used in your code.
-# evaluator = Evaluate(devset=trainset, num_threads=24, display_progress=True, display_table=5)
-# Launch evaluation.
-# evaluator(write_video_transcript, metric=get_similarity_score)
 
 # Plot the data
 # import pandas as pd
@@ -134,15 +107,105 @@ max        2.147124
 """
 
 
-def metric(original_text, generated_text):
-    similarity_score = get_similarity_score(original_text, generated_text)
-    return similarity_score >= 1.8
+def metric(example, pred, trace=None):
+    topic, intro_video, transcript = (
+        example.topic,
+        example.intro_video,
+        pred.intro_video,
+    )
+
+    similarity_score = get_similarity_score(intro_video, transcript)
+    try:
+        verdict = similarity_score >= 1.9
+        return verdict
+    except:
+        return None
 
 
-teleprompter = dspy.MIPROv2(metric=metric, num_threads=24, verbose=True)
+scores = []
+n = 200
+for index, x in enumerate(trainset[:n]):
+    print(f"Evaluating {index+1} out of {n}")
+    pred = write_video_transcript(**x.inputs())
+    score = metric(x, pred)
+    scores.append(score)
+
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+
+def visualize_bool_list(bool_list):
+    # Calculate proportions
+    total = len(bool_list)
+    true_count = sum(bool_list)
+    proportions = [true_count / total, (total - true_count) / total]
+
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=(12, 2))
+
+    # Create horizontal bar
+    ax.barh(0, proportions[0], color="#2ecc71", label=f"True ({true_count})")
+    ax.barh(
+        0,
+        proportions[1],
+        left=proportions[0],
+        color="#e74c3c",
+        label=f"False ({total-true_count})",
+    )
+
+    # Customize appearance
+    ax.set_yticks([])  # Remove y-axis ticks
+    ax.set_xticks([])  # Remove x-axis ticks
+    ax.set_xlim(0, 1)  # Set x-axis limits
+
+    # Remove all spines
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    # Add percentage labels
+    ax.text(
+        proportions[0] / 2,
+        0,
+        f"TRUE ({true_count}/{total})",
+        ha="center",
+        va="center",
+        color="white",
+        fontsize=12,
+        fontweight="bold",
+    )
+    ax.text(
+        proportions[0] + proportions[1] / 2,
+        0,
+        f"FALSE ({total-true_count}/{total})",
+        ha="center",
+        va="center",
+        color="white",
+        fontsize=12,
+        fontweight="bold",
+    )
+
+    plt.tight_layout()
+    plt.show()
+
+
+# Example usage:
+# scores = [s for s in scores if s is not None]
+# bool_list = scores
+# visualize_bool_list(bool_list)
+#
+
+teleprompter = dspy.MIPROv2(
+    metric=metric,
+    num_threads=24,
+    verbose=True,
+    max_bootstrapped_demos=4,
+    max_labeled_demos=16,
+)
 # Train the model
 optimized_program = teleprompter.compile(write_video_transcript, trainset=trainset)
 
+
 # Save the optimized program to disk
-optimized_program.save("intro_video.json")
+optimizeda_program.save("intro_video.json")
 optimized_program.save("intro_video.pkl")
