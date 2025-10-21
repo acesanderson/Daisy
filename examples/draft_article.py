@@ -73,5 +73,5 @@ class DraftArticle(dspy.Module):
 
 
 draft_article = DraftArticle()
-article = draft_article(topic="Python's Collections Library")
+article = draft_article(topic="Sales Management")
 console.print(Markdown("\n".join(article.sections)))

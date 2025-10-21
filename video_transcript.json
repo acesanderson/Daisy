@@ -1,0 +1,32 @@
+{
+  "predict": {
+    "traces": [],
+    "train": [],
+    "demos": [],
+    "signature": {
+      "instructions": "Write a video transcript for the given topic.",
+      "fields": [
+        {
+          "prefix": "Topic:",
+          "description": "the topic of the course"
+        },
+        {
+          "prefix": "Reasoning: Let's think step by step in order to",
+          "description": "${reasoning}"
+        },
+        {
+          "prefix": "Video Transcript:",
+          "description": "markdown-formatted transcript of an intro video of roughly 640 words"
+        }
+      ]
+    },
+    "lm": null
+  },
+  "metadata": {
+    "dependency_versions": {
+      "python": "3.12",
+      "dspy": "2.6.16",
+      "cloudpickle": "3.1"
+    }
+  }
+}
